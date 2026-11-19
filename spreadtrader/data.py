@@ -16,12 +16,25 @@ from .universe import TICKERS
 DEFAULT_PATH = Path("data/prices.csv")
 
 
+def _download_one(yf, ticker: str, start: str, end, attempts: int = 4) -> pd.Series:
+    import time
+    for i in range(attempts):
+        raw = yf.download(ticker, start=start, end=end, auto_adjust=False,
+                          progress=False, threads=False)
+        if raw is not None and len(raw):
+            close = raw["Close"]
+            if isinstance(close, pd.DataFrame):
+                close = close.iloc[:, 0]
+            return close.rename(ticker)
+        time.sleep(3 * (i + 1))
+    return pd.Series(name=ticker, dtype=float)
+
+
 def download(tickers=TICKERS, start="2010-01-01", end=None) -> pd.DataFrame:
+    """One ticker at a time, with retries (parallel downloads can fail on yfinance's cache)."""
     import yfinance as yf  # only needed for downloading
 
-    raw = yf.download(list(tickers), start=start, end=end, auto_adjust=False,
-                      progress=False, group_by="column", threads=True)
-    close = raw["Close"] if isinstance(raw.columns, pd.MultiIndex) else raw[["Close"]]
+    close = pd.concat([_download_one(yf, t, start, end) for t in tickers], axis=1)
     close.index = pd.to_datetime(close.index).tz_localize(None)
     close.index.name = "date"
     return close.sort_index()

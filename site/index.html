@@ -1,0 +1,295 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SpreadTrader · Futures spread trading backtest</title>
+<meta name="description" content="Walk-forward spread trading on futures pairs: cointegration tests, Kalman-filter hedge ratios and an out-of-sample backtest.">
+<script src="https://cdn.plot.ly/plotly-2.35.2.min.js" charset="utf-8"></script>
+<style>
+  :root {
+    --bg: #0b0f14; --panel: #121821; --panel2: #18202b; --line: #243042;
+    --text: #e6edf3; --muted: #8b98a9; --accent: #4fd1c5; --accent2: #f6ad55;
+    --good: #48bb78; --bad: #f56565; --blue: #63b3ed;
+    --mono: ui-monospace, "SF Mono", "Cascadia Code", Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+         font: 15px/1.5 Inter, "Segoe UI", system-ui, -apple-system, sans-serif; }
+  a { color: var(--accent); }
+  header { padding: 28px 32px 8px; max-width: 1280px; margin: 0 auto; }
+  header h1 { margin: 0; font-size: 26px; letter-spacing: -0.3px; }
+  header h1 span { color: var(--accent); }
+  header p { margin: 6px 0 0; color: var(--muted); max-width: 820px; }
+  .meta { font-family: var(--mono); font-size: 12px; color: var(--muted); margin-top: 10px; }
+  main { max-width: 1280px; margin: 0 auto; padding: 8px 32px 48px; }
+  section { margin-top: 26px; }
+  h2 { font-size: 15px; text-transform: uppercase; letter-spacing: 1.2px; color: var(--muted);
+       margin: 0 0 12px; font-weight: 600; }
+  .kpis { display: grid; grid-template-columns: repeat(6, 1fr); gap: 12px; }
+  .kpi { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; }
+  .kpi .v { font-family: var(--mono); font-size: 24px; font-weight: 600; }
+  .kpi .l { color: var(--muted); font-size: 12.5px; margin-top: 2px; }
+  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 16px; }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+  th, td { text-align: right; padding: 8px 10px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+  th { color: var(--muted); font-weight: 500; font-size: 12px; text-transform: uppercase; letter-spacing: .6px; }
+  th:first-child, td:first-child { text-align: left; }
+  td { font-family: var(--mono); }
+  td:first-child { font-family: inherit; }
+  tbody tr.click { cursor: pointer; }
+  tbody tr.click:hover { background: var(--panel2); }
+  tbody tr.sel { background: #1b2a33; box-shadow: inset 3px 0 0 var(--accent); }
+  .pos { color: var(--good); } .neg { color: var(--bad); } .dim { color: var(--muted); }
+  .tag { font-family: inherit; font-size: 11px; padding: 2px 7px; border-radius: 99px;
+         background: var(--panel2); color: var(--muted); border: 1px solid var(--line); margin-left: 6px; }
+  .why { color: var(--muted); margin: 2px 0 12px; }
+  .chart { width: 100%; height: 300px; }
+  .chart.tall { height: 380px; }
+  .scroll { max-height: 320px; overflow: auto; }
+  .note { color: var(--muted); font-size: 13.5px; }
+  .note b { color: var(--text); font-weight: 600; }
+  ol.how { margin: 0; padding-left: 20px; } ol.how li { margin: 6px 0; }
+  .heat td { text-align: center; }
+  footer { color: var(--muted); font-size: 12.5px; text-align: center; padding: 24px; }
+  #err { display: none; background: #2a1414; border: 1px solid #5a2020; padding: 14px; border-radius: 8px; }
+  @media (max-width: 980px) {
+    .kpis { grid-template-columns: repeat(3, 1fr); } .grid2 { grid-template-columns: 1fr; }
+    header, main { padding-left: 16px; padding-right: 16px; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1><span>Spread</span>Trader</h1>
+  <p>Trading the gap between related futures, such as WTI vs Brent crude, gold vs silver or 5-year vs 10-year
+     Treasuries. When a gap stretches unusually far, the engine bets it will close. Every trade below happened
+     on data the model had not yet seen.</p>
+  <div class="meta" id="meta">Loading…</div>
+</header>
+<main>
+  <div id="err"></div>
+
+  <section>
+    <h2>Portfolio (all pairs, equal capital, out-of-sample)</h2>
+    <div class="kpis" id="kpis"></div>
+  </section>
+
+  <section class="grid2">
+    <div class="panel">
+      <h2>Growth of 1 unit of capital</h2>
+      <div id="equity" class="chart"></div>
+      <p class="note">Log scale. The spread engine is market-neutral: it is long one future and short another, so it
+        should not simply follow the stock market.</p>
+    </div>
+    <div class="panel">
+      <h2>Return by calendar year</h2>
+      <div id="yearly" class="chart"></div>
+      <p class="note">Spread engine with the Kalman-filter hedge ratio, net of trading costs.</p>
+    </div>
+  </section>
+
+  <section class="panel">
+    <h2>Strategy comparison</h2>
+    <table id="compare"></table>
+  </section>
+
+  <section class="panel">
+    <h2>Pairs <span class="tag">click a row for details</span></h2>
+    <div class="scroll" style="max-height:none"><table id="pairs"></table></div>
+  </section>
+
+  <section class="panel" id="detail">
+    <h2 id="d-title">Pair detail</h2>
+    <div class="why" id="d-why"></div>
+    <div class="grid2">
+      <div><div id="d-prices" class="chart"></div></div>
+      <div><div id="d-equity" class="chart"></div></div>
+    </div>
+    <div id="d-z" class="chart tall"></div>
+    <div class="grid2" style="margin-top:12px">
+      <div><h2>Trades</h2><div class="scroll"><table id="d-trades"></table></div></div>
+      <div><h2>Walk-forward windows</h2><div class="scroll"><table id="d-windows"></table></div></div>
+    </div>
+  </section>
+
+  <section class="grid2">
+    <div class="panel">
+      <h2>Robustness: entry and exit thresholds</h2>
+      <table id="sens" class="heat"></table>
+      <p class="note">Sharpe ratio of the portfolio if the entry and exit thresholds were set differently. If only
+        one cell looked good, the result would be luck. The main study uses entry 2.0 and exit 0.5, fixed before
+        running it.</p>
+    </div>
+    <div class="panel">
+      <h2>Robustness: trading costs</h2>
+      <table id="costs"></table>
+      <p class="note">Cost per unit of notional traded, in basis points (1 bp = 0.01%), including slippage.
+        The main study uses 3 bp.</p>
+    </div>
+  </section>
+
+  <section class="panel">
+    <h2>How it works</h2>
+    <ol class="how">
+      <li><b>Pick pairs for a reason.</b> 11 pairs with an economic link (same commodity, refined products,
+        neighbouring points on the yield curve). Pairs are not chosen by searching for the best backtest.</li>
+      <li><b>Walk forward.</b> Every 6 months, look back 2 years and run an Engle-Granger cointegration test. A
+        pair is only traded in the next 6 months if its spread kept returning to its average (p &lt; 0.05) with a
+        half-life between 1 and 60 days.</li>
+      <li><b>Track the hedge ratio.</b> A Kalman filter updates how many units of one future hedge the other, every
+        day, using only past prices. Its prediction error, divided by its expected size, gives a z-score.</li>
+      <li><b>Trade the stretch.</b> Sell the spread when z &gt; 2, buy it when z &lt; −2, exit when it comes back
+        inside ±0.5. Stop out beyond ±4 or after 3 half-lives. Decisions at today's close earn tomorrow's return.</li>
+      <li><b>Compare honestly.</b> Same rules with a classic static hedge ratio, against buying and holding S&amp;P 500
+        futures, after costs.</li>
+    </ol>
+    <p class="note" style="margin-top:12px"><b>Limits.</b> Prices are Yahoo Finance continuous front-month futures,
+      which jump when contracts roll; those jumps are not adjusted. Returns are per unit of notional with no leverage
+      or margin. WTI's negative settlement on 20 April 2020 is removed because a log price does not exist there.
+      This is a research backtest, not trading advice.</p>
+  </section>
+</main>
+<footer>Built by Harsh Jindal · <a href="https://github.com/HarshJ05/spreadtrader">Source on GitHub</a> ·
+  Results are recomputed every week by a GitHub Action.</footer>
+
+<script>
+const C = { text: '#e6edf3', muted: '#8b98a9', line: '#243042', accent: '#4fd1c5', accent2: '#f6ad55',
+            good: '#48bb78', bad: '#f56565', blue: '#63b3ed' };
+const pct = (v, d = 1) => v == null ? '–' : (v * 100).toFixed(d) + '%';
+const num = (v, d = 2) => v == null ? '–' : v.toFixed(d);
+const sign = v => v == null ? 'dim' : (v >= 0 ? 'pos' : 'neg');
+const layout = (extra = {}) => Object.assign({
+  paper_bgcolor: 'rgba(0,0,0,0)', plot_bgcolor: 'rgba(0,0,0,0)',
+  font: { color: C.muted, size: 11.5 }, margin: { l: 48, r: 14, t: 10, b: 32 },
+  xaxis: { gridcolor: C.line, zeroline: false }, yaxis: { gridcolor: C.line, zeroline: false },
+  legend: { orientation: 'h', y: 1.12, x: 0, font: { color: C.text } }, hovermode: 'x unified',
+}, extra);
+const cfg = { displayModeBar: false, responsive: true };
+
+async function getJSON(u) { const r = await fetch(u); if (!r.ok) throw new Error(u + ' → ' + r.status); return r.json(); }
+
+function kpis(s) {
+  const k = s.portfolio.kalman;
+  const trades = s.pairs.reduce((a, p) => a + (p.kalman.trades || 0), 0);
+  const wins = s.pairs.reduce((a, p) => a + (p.kalman.trades ? p.kalman.win_rate * p.kalman.trades : 0), 0);
+  const items = [
+    [num(k.sharpe), 'Sharpe ratio'], [pct(k.cagr, 2), 'Annual return'], [pct(k.max_drawdown), 'Max drawdown'],
+    [num(s.correlation_with_sp500), 'Correlation with S&P 500'], [trades, 'Trades'],
+    [trades ? pct(wins / trades, 0) : '–', 'Winning trades'],
+  ];
+  document.getElementById('kpis').innerHTML = items.map(([v, l]) =>
+    `<div class="kpi"><div class="v">${v}</div><div class="l">${l}</div></div>`).join('');
+}
+
+function compare(s) {
+  const rows = [['Spread engine · Kalman hedge', s.portfolio.kalman], ['Spread engine · static OLS hedge', s.portfolio.static],
+                ['Buy & hold S&P 500 futures', s.portfolio.buy_and_hold_sp500]];
+  document.getElementById('compare').innerHTML =
+    '<thead><tr><th>Strategy</th><th>Annual return</th><th>Volatility</th><th>Sharpe</th><th>Max drawdown</th><th>Calmar</th></tr></thead><tbody>' +
+    rows.map(([n, m]) => `<tr><td>${n}</td><td class="${sign(m.cagr)}">${pct(m.cagr, 2)}</td><td>${pct(m.volatility, 2)}</td>
+      <td>${num(m.sharpe)}</td><td class="neg">${pct(m.max_drawdown)}</td><td>${num(m.calmar)}</td></tr>`).join('') + '</tbody>';
+}
+
+function equity(s) {
+  const e = s.equity;
+  Plotly.newPlot('equity', [
+    { x: e.dates, y: e.kalman, name: 'Spread engine (Kalman)', line: { color: C.accent, width: 2 } },
+    { x: e.dates, y: e.static, name: 'Static hedge', line: { color: C.accent2, width: 1.5 } },
+    { x: e.dates, y: e.sp500, name: 'S&P 500 futures', line: { color: C.muted, width: 1.2, dash: 'dot' } },
+  ], layout({ yaxis: { type: 'log', gridcolor: C.line } }), cfg);
+  const yrs = Object.keys(s.yearly), v = Object.values(s.yearly);
+  Plotly.newPlot('yearly', [{ x: yrs, y: v.map(x => x * 100), type: 'bar',
+    marker: { color: v.map(x => x >= 0 ? C.good : C.bad) }, hovertemplate: '%{x}: %{y:.2f}%<extra></extra>' }],
+    layout({ yaxis: { ticksuffix: '%', gridcolor: C.line }, hovermode: 'closest' }), cfg);
+}
+
+let PAIRS = [];
+function pairsTable(s) {
+  PAIRS = s.pairs;
+  const t = document.getElementById('pairs');
+  t.innerHTML = '<thead><tr><th>Pair</th><th>Traded windows</th><th>Trades</th><th>Win rate</th><th>Avg days</th>' +
+    '<th>Annual return</th><th>Sharpe · Kalman</th><th>Sharpe · static</th><th>Max drawdown</th></tr></thead><tbody>' +
+    s.pairs.map((p, i) => { const k = p.kalman; return `<tr class="click" data-i="${i}">
+      <td>${p.label}<span class="tag">${p.group}</span></td><td>${p.windows_eligible}/${p.windows_total}</td>
+      <td>${k.trades ?? 0}</td><td>${pct(k.win_rate, 0)}</td><td>${num(k.avg_days_held, 1)}</td>
+      <td class="${sign(k.cagr)}">${pct(k.cagr, 2)}</td><td class="${sign(k.sharpe)}">${num(k.sharpe)}</td>
+      <td class="${sign(p.static.sharpe)}">${num(p.static.sharpe)}</td><td class="neg">${pct(k.max_drawdown)}</td></tr>`; }).join('') + '</tbody>';
+  t.querySelectorAll('tr.click').forEach(r => r.onclick = () => showPair(+r.dataset.i));
+}
+
+async function showPair(i) {
+  document.querySelectorAll('#pairs tr.click').forEach(r => r.classList.toggle('sel', +r.dataset.i === i));
+  const p = PAIRS[i];
+  const d = await getJSON(`data/pairs/${p.id}.json`);
+  document.getElementById('d-title').textContent = d.label;
+  document.getElementById('d-why').textContent = d.why;
+  Plotly.newPlot('d-prices', [
+    { x: d.dates, y: d.y_norm, name: d.y_name, line: { color: C.blue, width: 1.5 } },
+    { x: d.dates, y: d.x_norm, name: d.x_name, line: { color: C.accent2, width: 1.5 } },
+  ], layout({ yaxis: { title: { text: 'Price, rebased to 100' }, gridcolor: C.line } }), cfg);
+  Plotly.newPlot('d-equity', [{ x: d.dates, y: d.equity_kalman, name: 'Pair equity (net of costs)',
+    line: { color: C.accent, width: 2 } }], layout({ showlegend: true }), cfg);
+
+  // shade periods when the pair was eligible to trade
+  const shapes = [];
+  d.windows.filter(w => w.eligible).forEach(w => shapes.push({ type: 'rect', xref: 'x', yref: 'paper',
+    x0: w.start, x1: w.end, y0: 0, y1: 1, fillcolor: 'rgba(79,209,197,0.07)', line: { width: 0 } }));
+  [2, -2].forEach(v => shapes.push({ type: 'line', xref: 'paper', x0: 0, x1: 1, y0: v, y1: v, line: { color: C.bad, width: 1, dash: 'dash' } }));
+  [0.5, -0.5].forEach(v => shapes.push({ type: 'line', xref: 'paper', x0: 0, x1: 1, y0: v, y1: v, line: { color: C.good, width: 1, dash: 'dot' } }));
+  const longs = { x: [], y: [] }, shorts = { x: [], y: [] };
+  d.position.forEach((v, j) => { if (v > 0) { longs.x.push(d.dates[j]); longs.y.push(d.z[j]); }
+                                 if (v < 0) { shorts.x.push(d.dates[j]); shorts.y.push(d.z[j]); } });
+  Plotly.newPlot('d-z', [
+    { x: d.dates, y: d.z, name: 'Spread z-score', line: { color: C.muted, width: 1 } },
+    { x: longs.x, y: longs.y, name: 'Long spread', mode: 'markers', marker: { color: C.good, size: 3.5 } },
+    { x: shorts.x, y: shorts.y, name: 'Short spread', mode: 'markers', marker: { color: C.bad, size: 3.5 } },
+  ], layout({ shapes, yaxis: { range: [-5, 5], gridcolor: C.line, title: { text: 'z-score' } } }), cfg);
+
+  const tr = d.trades.slice().reverse();
+  document.getElementById('d-trades').innerHTML =
+    '<thead><tr><th>Entry</th><th>Exit</th><th>Side</th><th>Days</th><th>Return</th><th>Exit reason</th></tr></thead><tbody>' +
+    (tr.length ? tr.map(t => `<tr><td>${t.entry}</td><td>${t.exit ?? 'open'}</td><td>${t.side}</td><td>${t.days}</td>
+      <td class="${sign(t.return)}">${pct(t.return, 2)}</td><td>${t.reason}</td></tr>`).join('')
+      : '<tr><td colspan="6" class="dim">No trades: the pair never passed the cointegration test.</td></tr>') + '</tbody>';
+  document.getElementById('d-windows').innerHTML =
+    '<thead><tr><th>Trading window</th><th>p-value</th><th>Half-life (days)</th><th>Traded?</th></tr></thead><tbody>' +
+    d.windows.slice().reverse().map(w => `<tr><td>${w.start} → ${w.end}</td><td>${num(w.pvalue, 3)}</td>
+      <td>${w.half_life == null ? '∞' : num(w.half_life, 1)}</td><td class="${w.eligible ? 'pos' : 'dim'}">${w.eligible ? 'yes' : 'no'}</td></tr>`).join('') + '</tbody>';
+}
+
+function robustness(s) {
+  if (s.sensitivity) {
+    const entries = [...new Set(s.sensitivity.map(r => r.entry_z))], exits = [...new Set(s.sensitivity.map(r => r.exit_z))];
+    const get = (e, x) => s.sensitivity.find(r => r.entry_z === e && r.exit_z === x);
+    const vals = s.sensitivity.map(r => r.sharpe ?? 0), lo = Math.min(...vals), hi = Math.max(...vals);
+    const shade = v => { const t = hi > lo ? (v - lo) / (hi - lo) : 0.5; return `rgba(79,209,197,${0.08 + 0.4 * t})`; };
+    document.getElementById('sens').innerHTML = '<thead><tr><th>Entry \\ Exit</th>' + exits.map(x => `<th>±${x}</th>`).join('') +
+      '</tr></thead><tbody>' + entries.map(e => `<tr><td>±${e}</td>` + exits.map(x => { const r = get(e, x);
+        const main = e === s.config.entry_z && x === s.config.exit_z;
+        return `<td style="background:${shade(r.sharpe ?? 0)};${main ? 'outline:2px solid #4fd1c5' : ''}">${num(r.sharpe)}</td>`; }).join('') + '</tr>').join('') + '</tbody>';
+  }
+  if (s.cost_sensitivity) {
+    document.getElementById('costs').innerHTML = '<thead><tr><th>Cost (bp)</th><th>Annual return</th><th>Sharpe</th></tr></thead><tbody>' +
+      s.cost_sensitivity.map(r => `<tr><td>${r.cost_bps}</td><td class="${sign(r.cagr)}">${pct(r.cagr, 2)}</td><td>${num(r.sharpe)}</td></tr>`).join('') + '</tbody>';
+  }
+}
+
+(async () => {
+  try {
+    const s = await getJSON('data/summary.json');
+    document.getElementById('meta').textContent =
+      `Data ${s.data.first_date} → ${s.data.last_date} · out-of-sample from ${s.out_of_sample_start} · ` +
+      `updated ${s.generated_at} · costs ${s.config.cost_bps} bp`;
+    kpis(s); equity(s); compare(s); pairsTable(s); robustness(s);
+    const best = s.pairs.map((p, i) => [p.kalman.trades || 0, i]).sort((a, b) => b[0] - a[0])[0][1];
+    showPair(best);
+  } catch (e) {
+    const el = document.getElementById('err'); el.style.display = 'block';
+    el.textContent = 'Could not load results: ' + e.message;
+  }
+})();
+</script>
+</body>
+</html>
