@@ -139,7 +139,8 @@
         pair is only traded in the next 6 months if its spread kept returning to its average (p &lt; 0.05) with a
         half-life between 1 and 60 days.</li>
       <li><b>Track the hedge ratio.</b> A Kalman filter updates how many units of one future hedge the other, every
-        day, using only past prices. Its prediction error, divided by its expected size, gives a z-score.</li>
+        day, using only past prices. Its prediction error is the spread; comparing it with its own previous 6 months
+        gives a z-score (how many normal-sized moves from fair value).</li>
       <li><b>Trade the stretch.</b> Sell the spread when z &gt; 2, buy it when z &lt; −2, exit when it comes back
         inside ±0.5. Stop out beyond ±4 or after 3 half-lives. Decisions at today's close earn tomorrow's return.</li>
       <li><b>Compare honestly.</b> Same rules with a classic static hedge ratio, against buying and holding S&amp;P 500
