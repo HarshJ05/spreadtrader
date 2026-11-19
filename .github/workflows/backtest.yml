@@ -1,0 +1,36 @@
+name: backtest
+# Downloads fresh futures prices, re-runs the full walk-forward study and
+# commits the results the dashboard reads. Runs every Saturday, or by hand
+# from the Actions tab ("Run workflow").
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 3 * * 6"
+permissions:
+  contents: write
+jobs:
+  backtest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - run: pip install -r requirements.txt yfinance
+      - name: Download daily futures prices
+        run: python -m spreadtrader.data --start 2010-01-01 --out data/prices.csv
+      - name: Run walk-forward backtest
+        run: python -m spreadtrader.run --prices data/prices.csv --out site/data --report results/RESULTS.md
+      - name: Keep the raw price file as a build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: prices
+          path: data/prices.csv
+          retention-days: 30
+      - name: Commit results
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add site/data results/RESULTS.md
+          git diff --cached --quiet || git commit -m "Update backtest results"
+          git push
