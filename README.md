@@ -3,7 +3,7 @@
 [![tests](https://github.com/HarshJ05/spreadtrader/actions/workflows/tests.yml/badge.svg)](https://github.com/HarshJ05/spreadtrader/actions/workflows/tests.yml)
 [![backtest](https://github.com/HarshJ05/spreadtrader/actions/workflows/backtest.yml/badge.svg)](https://github.com/HarshJ05/spreadtrader/actions/workflows/backtest.yml)
 
-**Live dashboard:** LIVE_URL
+**Live dashboard:** https://harshj05.github.io/spreadtrader/
 
 Instead of betting on whether oil or gold goes up, this engine trades the **gap between two related futures**:
 WTI vs Brent crude, gold vs silver, 5-year vs 10-year Treasury notes, soybeans vs soybean meal and more. When a
