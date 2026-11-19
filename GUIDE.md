@@ -143,6 +143,13 @@ most pairs. The sanity check now in the results (the standard deviation of z
 should be near 1) caught it. Measuring the size over a trailing window fixed
 it. This is a good story for "tell me about a mistake you found".
 
+**What actually adapts.** In the real results the hedge ratio moved a lot for
+oil (WTI vs Brent: 0.61 to 0.97) and grains, but barely at all for Treasury
+pairs (2-year vs 5-year stayed at 0.20). For those, the filter mostly updates
+the fair value (the intercept). Bond relationships are very stable, so that is
+expected, and it is a good detail to mention if asked "did the hedge ratio
+really change?".
+
 One setting matters: `delta`, how fast the hedge ratio is allowed to drift. Too
 fast and the filter chases noise (the spread never looks stretched); too slow
 and it is just a fixed hedge again.
@@ -178,7 +185,8 @@ change past positions (`tests/test_engine.py`).
 - **Annual return (CAGR):** average yearly growth.
 - **Volatility:** how much returns swing, annualised.
 - **Sharpe ratio:** return divided by volatility (×√252 for daily data). Return
-  per unit of risk. Above 1 is good for a single strategy; above 2 is rare and
+  per unit of risk. No risk-free rate is subtracted: a futures position needs
+  only margin, not cash, so its return is already an "excess" return. Above 1 is good for a single strategy; above 2 is rare and
   should make you suspicious.
 - **Max drawdown:** the worst fall from a peak to a low. What it would have
   felt like to hold the strategy at its worst.
