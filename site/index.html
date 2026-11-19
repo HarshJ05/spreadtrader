@@ -80,8 +80,9 @@
     <div class="panel">
       <h2>Growth of 1 unit of capital</h2>
       <div id="equity" class="chart"></div>
-      <p class="note">Log scale. The spread engine is market-neutral: it is long one future and short another, so it
-        should not simply follow the stock market.</p>
+      <p class="note">The spread engine (left axis) and the S&amp;P 500 (right axis, log scale) are on different scales:
+        the engine is market-neutral, long one future and short another, with no leverage, so its moves are small and
+        do not follow the stock market.</p>
     </div>
     <div class="panel">
       <h2>Return by calendar year</h2>
@@ -198,8 +199,10 @@ function equity(s) {
   Plotly.newPlot('equity', [
     { x: e.dates, y: e.kalman, name: 'Spread engine (Kalman)', line: { color: C.accent, width: 2 } },
     { x: e.dates, y: e.static, name: 'Static hedge', line: { color: C.accent2, width: 1.5 } },
-    { x: e.dates, y: e.sp500, name: 'S&P 500 futures', line: { color: C.muted, width: 1.2, dash: 'dot' } },
-  ], layout({ yaxis: { type: 'log', gridcolor: C.line } }), cfg);
+    { x: e.dates, y: e.sp500, name: 'S&P 500 futures (right axis)', yaxis: 'y2', line: { color: C.muted, width: 1.2, dash: 'dot' } },
+  ], layout({ margin: { l: 48, r: 44, t: 10, b: 32 },
+              yaxis: { gridcolor: C.line, title: { text: 'Spread engine' } },
+              yaxis2: { overlaying: 'y', side: 'right', type: 'log', showgrid: false, title: { text: 'S&P 500' } } }), cfg);
   const yrs = Object.keys(s.yearly), v = Object.values(s.yearly);
   Plotly.newPlot('yearly', [{ x: yrs, y: v.map(x => x * 100), type: 'bar',
     marker: { color: v.map(x => x >= 0 ? C.good : C.bad) }, hovertemplate: '%{x}: %{y:.2f}%<extra></extra>' }],
