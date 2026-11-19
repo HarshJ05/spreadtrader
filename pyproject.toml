@@ -1,0 +1,13 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "spreadtrader"
+version = "1.0.0"
+description = "Walk-forward spread trading on futures pairs"
+requires-python = ">=3.10"
+dependencies = ["numpy>=2.0", "pandas>=2.2", "scipy>=1.13", "statsmodels>=0.14"]
+
+[tool.setuptools]
+packages = ["spreadtrader"]
