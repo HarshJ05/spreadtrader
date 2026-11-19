@@ -8,8 +8,8 @@ How one pair is traded
    passes may the pair be traded in the next *trading* window (default 6 months).
    Every trade therefore happens on data the selection step never saw.
 2. Turn the spread into a z-score:
-     * "kalman": Kalman-filter prediction error divided by its predicted
-       standard deviation (hedge ratio adapts every day);
+     * "kalman": hedge ratio and fair value updated daily by a Kalman filter;
+       the spread is scaled by its trailing 6-month mean and standard deviation;
      * "static": classic approach, OLS hedge ratio and mean/std frozen from the
        formation window.
 3. Rules, decided at today's close and applied to tomorrow's return:
@@ -46,6 +46,7 @@ class Config:
     max_hold_mult: float = 3.0    # time stop = max_hold_mult * half-life (days)
     cost_bps: float = 3.0         # cost per unit of gross notional traded, incl. slippage
     kalman_delta: float = 1e-3
+    z_lookback: int = 126         # days used to measure the spread's normal size (Kalman method)
 
     def to_dict(self):
         return asdict(self)
@@ -110,7 +111,14 @@ def _signals(ly: pd.Series, lx: pd.Series, windows: list[Window], method: str,
         k = kalman_hedge(ly.values, lx.values, delta=cfg.kalman_delta,
                          obs_var=float(np.var(resid0)), init_alpha=a0, init_beta=b0)
         df["beta"] = k.beta
-        df["z"] = k.zscore
+        # z-score: today's Kalman spread vs its trailing mean and spread size.
+        # The trailing window ends yesterday, so the scale never uses the future,
+        # and it follows changes in volatility (a fixed scale measured in the
+        # first two years would be wrong a decade later).
+        e = pd.Series(k.error, index=ly.index)
+        m = e.rolling(cfg.z_lookback, min_periods=cfg.z_lookback // 2).mean().shift(1)
+        sd = e.rolling(cfg.z_lookback, min_periods=cfg.z_lookback // 2).std().shift(1)
+        df["z"] = ((e - m) / sd).values
     elif method == "static":
         df["beta"] = np.nan
         df["z"] = np.nan

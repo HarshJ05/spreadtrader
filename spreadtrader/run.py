@@ -122,6 +122,11 @@ def write_outputs(prices: pd.DataFrame, clean_report: dict, cfg: Config, out: Pa
             f = r[m].frame
             f = f[f.index >= start]
             row[m] = summarize(f["net"], r[m].trades, f["position"])
+        for m in METHODS:
+            f = r[m].frame
+            zz = f.loc[f["tradable"], "z"].dropna()
+            row[m]["z_std_when_tradable"] = float(zz.std()) if len(zz) > 2 else None
+            row[m]["share_beyond_entry"] = float((zz.abs() > cfg.entry_z).mean()) if len(zz) else None
         w = r["kalman"].windows
         row["windows_eligible"] = int(sum(x.eligible for x in w))
         row["windows_total"] = len(w)
@@ -186,6 +191,14 @@ def report_markdown(s: dict) -> str:
         k = p["kalman"]
         lines.append(f"| {p['label']} | {p['windows_eligible']}/{p['windows_total']} | {k.get('trades')} | "
                      f"{pct(k.get('win_rate'))} | {num(k['sharpe'])} | {num(p['static']['sharpe'])} |")
+    lines += ["", "Signal sanity check (eligible days only): a z-score should have a standard deviation",
+              "near 1 and spend a few percent of days beyond the entry level.", "",
+              "| Pair | z std (Kalman) | days beyond entry (Kalman) | z std (static) | days beyond entry (static) |",
+              "|---|---|---|---|---|"]
+    for p in s["pairs"]:
+        k, st = p["kalman"], p["static"]
+        lines.append(f"| {p['label']} | {num(k.get('z_std_when_tradable'))} | {pct(k.get('share_beyond_entry'))} | "
+                     f"{num(st.get('z_std_when_tradable'))} | {pct(st.get('share_beyond_entry'))} |")
     return "\n".join(lines) + "\n"
 
 
